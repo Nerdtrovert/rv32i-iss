@@ -1,4 +1,4 @@
-#include<iostream>
+#include <iostream>
 #include <iomanip>
 #include <vector>
 #include <cstdint>
@@ -29,7 +29,19 @@ int main(){
 |      imm[11:0]       |   rs1    |funct3|   rd    |    opcode    |  I-type
 +----------------------+----------+------+---------+--------------+
 */
+    uint32_t opcode = (instruction) & 0x7F ;
+    uint32_t rd = (instruction >> 7) & 0x1F;
+    uint32_t funct32 = (instruction >> 12) & 0x07;
+    uint32_t rs1 = (instruction >> 15) & 0x1F;
     int32_t immediate = static_cast<int32_t>(instruction) >> 20;
+
+    cout << "Instruction: 0x" << std::hex << instruction <<"\n";
+    cout << "Opcode: 0x" << std::hex << opcode <<"\n";
+    cout << "rd: 0x" << std::hex << rd <<"\n";
+    cout << "funct3: 0x" << std::hex << funct32 <<"\n";
+    cout << "rs1: 0x" << std::hex << rs1 <<"\n";
+    cout << "immediate: 0x" << std::hex << immediate <<"\n";
+
     // if(instruction == 0x00500113) cout << "Instruction: 0x" << std::hex << instruction <<"\n";
 
 }
