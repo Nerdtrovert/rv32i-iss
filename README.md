@@ -1,17 +1,14 @@
 # RV32I CPU Verification & Architecture Lab
 
-An incremental C++ reference-model project for understanding the boundary
-between RISC-V instruction encoding and CPU architectural behavior.
+An incremental C++17 reference-model project for learning how RISC-V machine
+code becomes architectural state.
 
-The current work focuses on the **Fetch -> Decode** stage: a 32-bit instruction
-is reconstructed from byte-addressable memory, then its encoded fields are
-made visible through masks, shifts, and debug output. The project is
-deliberately small and inspectable so that each architectural assumption can be
-compared with the RV32I specification and with instructions emitted by a real
-RISC-V assembler.
-
-This is not a cycle-accurate model or a complete CPU simulator. Execution,
-architectural state, and a full verification environment are planned next.
+The current implementation is deliberately focused on the **Fetch -> Decode**
+boundary. It models byte-addressable memory, reconstructs 32-bit
+little-endian instructions, and decodes RV32I fields into a
+`DecodedInstruction` value. The repository is being developed as a small,
+inspectable foundation for later execution modeling and verification—not as a
+cycle-accurate design or a complete CPU simulator.
 
 ## Current Status
 
@@ -19,68 +16,113 @@ architectural state, and a full verification environment are planned next.
 
 | Area | Status |
 | --- | --- |
-| Byte-addressable memory | Implemented: 1 KiB `std::vector<uint8_t>` RAM |
-| Instruction representation | Implemented: four little-endian bytes form one 32-bit word |
-| Instruction fetch | Implemented in `fetch_instruction` |
-| Field extraction | Demonstrated with opcode, `rd`, and J-type immediate |
-| RV32I format study | Worked through for R, I, S, B, U, and J formats |
-| Split immediate reconstruction | Worked through for S, B, and J encodings |
-| Assembler comparison | Performed with `riscv64-elf-as` and `objdump` artifacts in `tests/` |
-| Debug observability | Implemented through formatted hexadecimal decode output |
-| Architectural state | Not implemented |
-| Instruction execution | Not implemented |
-| Automated regression suite | Not implemented |
+| Byte-addressable memory | Implemented by `Memory` with bounds-checked byte access |
+| Instruction fetch | Implemented for four little-endian bytes |
+| CPU state container | Implemented as a `CPU` struct with 32 registers and `pc` |
+| Register access policy | Implemented: `x0` is immutable through `write_reg` |
+| Instruction decode | Implemented for R, I, S, B, U, and J opcode classes |
+| Field extraction | Implemented for applicable opcode, register, and function fields |
+| Immediate reconstruction | Implemented for S-, B-, and J-type encodings |
+| Signed immediate handling | Implemented for I-, S-, B-, and J-type paths |
+| Decode/execute boundary | Explicit: decode returns data; execution receives decoded data |
+| Instruction execution | Not implemented; execution entry point is currently a stub |
+| Fetch/decode/execute loop | Not implemented |
+| Automated regression tests | Not implemented |
 
-The source contains commented extraction examples for the additional formats;
-the active runtime path currently fetches the sample J-type instruction and
-prints its decoded fields.
+The active program fetches `0x010002ef`, decodes it as a J-type instruction,
+and prints its instruction word, opcode, destination register, and immediate.
+
+## Repository Architecture
+
+```text
+                         +----------------------+
+                         |       src/main.cpp   |
+                         |  stimulus + debug IO |
+                         +----------+-----------+
+                                    |
+                                    v
++----------------+       +----------+-----------+       +--------------------+
+|  Memory        | ----> |  Fetch               | ----> |  Decode            |
+|  include/     |       |  src/fetch.cpp       |       |  src/decode.cpp    |
+|  memory.h     |       |  fetch_instruction() |       |  DecodedInstruction|
++-------+--------+       +----------------------+       +---------+----------+
+        |                                                         |
+        |                                                         v
+        |                                             +-----------+----------+
+        +-------------------------------------------->|  Execute            |
+                                                      |  src/execute.cpp    |
+                                                      |  exec_instruction()  |
+                                                      |  [stub / next stage] |
+                                                      +-----------+----------+
+                                                                  |
+                                                                  v
+                                                      +-----------+----------+
+                                                      | CPU architectural   |
+                                                      | state: cpu.h        |
+                                                      | registers[32], pc   |
+                                                      +----------------------+
+```
+
+The current data path is:
+
+```text
+Memory bytes
+    -> fetch_instruction(memory, cpu.pc)
+    -> uint32_t instruction
+    -> decode_instruction(instruction)
+    -> DecodedInstruction
+    -> exec_instruction(...)  [not implemented]
+```
+
+### Architectural decisions
+
+**Decode and execute are separate interfaces.** `decode_instruction` is a
+pure transformation from an encoded `uint32_t` to a `DecodedInstruction`.
+Execution is given the decoded representation separately through
+`exec_instrcution(CPU&, const DecodedInstruction&, Memory&)`. This keeps
+bit-level encoding concerns out of instruction semantics and creates a clear
+seam for future unit, directed, and differential testing.
+
+**Architectural state is explicit.** `include/cpu.h` defines `CPU` as a
+lightweight struct containing the 32 general-purpose registers and program
+counter. `write_reg` protects the RISC-V `x0` invariant, while `read_reg`
+provides a bounded register read. Execution will update this state rather than
+hide it in decoder-local variables.
+
+**Memory owns byte access.** `Memory` encapsulates the RAM vector and performs
+bounds checks in `read_byte` and `write_byte`. Fetch depends on this interface
+instead of directly reaching into storage, making invalid accesses observable
+and keeping memory policy separate from instruction interpretation.
+
+**Small stages are preferred over a monolithic simulator.** The repository
+keeps memory, fetch, decode, execution, and CPU state in separate headers and
+translation units. This supports incremental implementation and makes each
+stage easier to inspect against the ISA specification.
 
 ## What It Demonstrates
 
-- **ISA encoding and decoding:** mapping specification-defined bit positions to
-  concrete C++ masks and shifts.
-- **Little-endian memory:** understanding how instruction bytes are laid out in
-  memory and reassembled by the fetch stage.
+- **ISA encoding and decoding:** mapping RV32I field positions to masks and
+  shifts.
+- **Little-endian memory:** reconstructing an instruction from byte lanes in
+  increasing address order.
 - **Fixed-width integer manipulation:** using `uint8_t`, `uint32_t`, and
-  `int32_t` to make data width and conversion behavior explicit.
-- **Immediate reconstruction:** combining non-contiguous S-, B-, and J-type
-  immediate fragments.
-- **Sign extension and alignment:** reasoning about signed immediates and the
-  implicit low alignment bit in branch and jump encodings.
+  `int32_t` for explicit data widths.
+- **Immediate reconstruction:** combining split S-, B-, and J-type immediate
+  fragments.
+- **Sign extension and alignment:** preserving signed offsets and accounting
+  for implicit alignment bits in branch and jump encodings.
 - **Architectural observability:** printing the fetched word and decoded fields
-  so intermediate results can be inspected deterministically.
+  in a deterministic format.
+- **Separation of concerns:** keeping encoding details in decode and reserving
+  architectural side effects for execute.
 - **Verification-oriented development:** comparing known assembler output with
-  expected instruction fields before adding execution semantics.
-
-## Architecture
-
-```text
-Memory
-  |
-  v
-Fetch
-  |
-  v
-Decode
-  |
-  v
-[Execution - next stage]
-```
-
-- **Memory:** stores a 1 KiB byte array and the sample instruction bytes.
-- **Fetch:** reads four consecutive bytes at the program counter and combines
-  them in little-endian order into a 32-bit instruction.
-- **Decode:** isolates fields such as opcode, register indices, function fields,
-  and immediate fragments.
-- **Execution:** not implemented yet; this is where decoded instructions will
-  update architectural state and control flow.
+  expected fields before adding execution semantics.
 
 ## Instruction Formats
 
-The six base RV32I instruction formats are represented below. The diagrams
-match the layouts used while studying the source implementation.
+The decoder covers the six base RV32I instruction formats below.
 
-### R-type — register-register ALU operations
+### R-type — register-register operations
 
 ```text
 31      25 24      20 19      15 14   12 11       7 6       0
@@ -89,10 +131,10 @@ match the layouts used while studying the source implementation.
 +-----------+----------+----------+-------+----------+---------+
 ```
 
-R-type instructions encode two source registers and one destination register.
-They are used by register-register arithmetic and logical operations.
+R-type instructions carry two source registers, one destination register, and
+the function fields used to select register-register ALU behavior.
 
-### I-type — immediate ALU, loads, and other immediate operations
+### I-type — immediate operations and loads
 
 ```text
 31                 20 19      15 14  12 11      7 6            0
@@ -101,8 +143,9 @@ They are used by register-register arithmetic and logical operations.
 +----------------------+----------+------+---------+--------------+
 ```
 
-I-type instructions carry a 12-bit immediate with one source and one
-destination register. Loads and immediate arithmetic use this format.
+I-type instructions use a 12-bit immediate, one source register, and one
+destination register. The decoder sign-extends the immediate for the active
+I-type opcode classes.
 
 ### S-type — stores
 
@@ -113,8 +156,8 @@ destination register. Loads and immediate arithmetic use this format.
 +-----------+----------+----------+-------+----------+---------+
 ```
 
-S-type splits a store offset between the upper and lower portions of the
-instruction because the `rd` field is not present.
+S-type splits a store offset across two instruction regions because there is no
+destination register field.
 
 ### B-type — conditional branches
 
@@ -125,8 +168,8 @@ instruction because the `rd` field is not present.
 +-------+---------+--------+--------+-----+----------+-+--------+
 ```
 
-B-type encodes a signed PC-relative branch offset across several bit ranges.
-The least-significant offset bit is implicit and represents alignment.
+B-type encodes a signed PC-relative offset in non-contiguous fields. The
+decoded offset includes the implicit low alignment bit.
 
 ### U-type — upper-immediate operations
 
@@ -137,8 +180,8 @@ The least-significant offset bit is implicit and represents alignment.
 +----------------------------+-----------+---------+
 ```
 
-U-type places a 20-bit immediate in the upper portion of the result and is
-used by instructions such as `LUI`.
+U-type carries the upper immediate used by instructions such as `LUI` and
+`AUIPC`.
 
 ### J-type — unconditional PC-relative jumps
 
@@ -149,82 +192,86 @@ used by instructions such as `LUI`.
 +-----------+-------------+-----+----------------+-----------+---------+
 ```
 
-J-type encodes a signed PC-relative jump offset in a split layout. The low
-offset bit is implicit because instruction targets are aligned.
+J-type reconstructs a signed jump offset from split fields and an implicit low
+alignment bit.
 
 ## Fetch
 
-`fetch_instruction` reconstructs a 32-bit word by placing each byte at its
-corresponding bit offset:
+`fetch_instruction` reads four bytes through the `Memory` interface and places
+them at bit offsets 0, 8, 16, and 24:
 
 ```cpp
-instruction |= static_cast<uint32_t>(ram[pc + 0]);
-instruction |= static_cast<uint32_t>(ram[pc + 1]) << 8;
-instruction |= static_cast<uint32_t>(ram[pc + 2]) << 16;
-instruction |= static_cast<uint32_t>(ram[pc + 3]) << 24;
+instruction |= static_cast<uint32_t>(memory.read_byte(pc + 0));
+instruction |= static_cast<uint32_t>(memory.read_byte(pc + 1)) << 8;
+instruction |= static_cast<uint32_t>(memory.read_byte(pc + 2)) << 16;
+instruction |= static_cast<uint32_t>(memory.read_byte(pc + 3)) << 24;
 ```
 
-For the current sample, RAM contains `ef 02 00 01`, which fetches as
-`0x010002ef`.
+The current stimulus writes `ef 02 00 01` to addresses `0..3`, producing the
+fetched instruction `0x010002ef`.
 
 ## Decode
 
-The decoder uses masks and shifts to isolate fields from the fetched word. For
-example:
+`decode_instruction` first extracts the opcode, then selects the format-specific
+field layout. Representative field extraction is:
 
 ```cpp
-uint32_t opcode = instruction & 0x7F;
-uint32_t rd = (instruction >> 7) & 0x1F;
-uint32_t funct3 = (instruction >> 12) & 0x07;
-uint32_t rs1 = (instruction >> 15) & 0x1F;
-uint32_t rs2 = (instruction >> 20) & 0x1F;
-uint32_t funct7 = (instruction >> 25) & 0x7F;
+decoded.opcode = instruction & 0x7F;
+decoded.rd = (instruction >> 7) & 0x1F;
+decoded.funct3 = (instruction >> 12) & 0x07;
+decoded.rs1 = (instruction >> 15) & 0x1F;
+decoded.rs2 = (instruction >> 20) & 0x1F;
+decoded.funct7 = (instruction >> 25) & 0x7F;
 ```
 
-These operations identify encoded fields; they do not execute the instruction.
-Instruction semantics belong to the future execution and architectural-state
-layers.
+The result is a `DecodedInstruction` containing the fields needed by a future
+execution stage. Decode identifies what is encoded; it does not update
+registers, memory, or the program counter.
 
 ## Immediate Reconstruction
 
-S-, B-, and J-type immediates are split because the fixed instruction layout
-reuses bit positions for register and function fields. Decoding therefore
-requires extracting each fragment and placing it into its architectural
-position. Signed values must then be sign-extended to the model's integer
-width. Branch and jump offsets also encode alignment: the effective low bit is
-implicit rather than stored as a normal instruction field.
+S-, B-, and J-type immediates are split across the instruction because the
+encoding reuses bit positions for registers and function fields. The decoder
+extracts each fragment, shifts it into its architectural position, combines the
+fragments, and sign-extends signed values.
 
-For the current J-type sample, the fragments reconstruct an offset of `0x10`,
-with `imm[10:1]` shifted left by one before the fields are combined.
+For B- and J-type offsets, the encoded immediate omits bit 0 because valid
+instruction targets are aligned. The decoder restores that bit as zero while
+reconstructing the effective offset.
 
 ## Verification Approach
 
-The current validation workflow uses known instructions emitted by a RISC-V
-assembler:
+The repository includes assembler input and disassembly artifacts in `tests/`:
 
 1. Write representative RV32I instructions in `tests/test.s`.
-2. Assemble them with `riscv64-elf-as -march=rv32i`.
-3. Inspect the machine code with `riscv64-elf-objdump`.
-4. Load selected bytes into the model.
-5. Compare fetched words and decoded fields against the assembler output.
-6. Keep intermediate values visible through deterministic hexadecimal output.
+2. Assemble with `riscv64-elf-as -march=rv32i`.
+3. Inspect machine code with `riscv64-elf-objdump`.
+4. Use known encodings as deterministic decode stimuli.
+5. Compare fetched words and decoded fields with the assembler output.
+6. Keep intermediate values observable through formatted console output.
 
-The checked-in assembler output includes R-type ALU instructions, a store,
-branches, `LUI`, and `JAL`. Future verification work will add directed tests,
-boundary values, negative immediates, illegal instructions, misalignment cases,
-regression coverage, and differential comparisons against an established
-RISC-V reference simulator. These future checks are not yet implemented as an
-automated test suite.
+The checked-in examples include R-type ALU instructions, a store, branches,
+`LUI`, and `JAL`. Automated regression tests, illegal-instruction checks,
+boundary-value tests, and differential testing are planned but are not yet
+implemented.
 
 ## Build & Run
 
+The repository uses the included `Makefile`:
+
 ```bash
-g++ -std=c++17 -Wall -Wextra -Wpedantic -Werror -fsanitize=address -O2 main.cpp -o app
+make
 ./app
 ```
 
-The executable prints the fetched instruction, opcode, destination register,
-and immediate for the active sample.
+The direct compiler configuration used by the Makefile is:
+
+```text
+c++ -std=c++17 -Wall -Wextra -Wpedantic -Iinclude
+```
+
+The current build does not enable AddressSanitizer in the Makefile. It does
+use bounds checks in `Memory`; fetch errors propagate through that interface.
 
 ## Example
 
@@ -235,7 +282,7 @@ Instruction bytes:  ef 02 00 01
 Instruction word:   0x010002ef
 ```
 
-Decoded fields:
+The active decode reports:
 
 ```text
 opcode:    0x6f
@@ -249,42 +296,47 @@ These fields correspond to:
 jal x5, 16
 ```
 
-The project currently decodes this instruction only. It does not yet execute
-`JAL`, update a program counter, or write a register.
+The project decodes this instruction only. It does not yet execute `JAL`, write
+`x5`, or update `pc`.
 
 ## Roadmap
 
 ```text
 Fetch
-  -> Decode                 [current]
-  -> Register File
-  -> Execute
-  -> Memory
-  -> Control Flow
-  -> Full Instruction Loop
-  -> Verification
-  -> Reference/Differential Testing
-  -> Firmware/Bare-Metal Extensions
+  -> Decode                         [current]
+  -> CPU architectural state       [container exists; execution use pending]
+  -> R-type ALU execution
+  -> I-type arithmetic/logical execution
+  -> Load/store execution
+  -> Branch and jump control flow
+  -> Full fetch/decode/execute loop
+  -> Instruction tracing
+  -> Directed regression verification
+  -> Reference/differential testing
+  -> Firmware/bare-metal extensions
 ```
 
-## Engineering Notes / Design Principles
+## Engineering Notes
 
-- Prefer correctness and specification alignment over premature optimization.
-- Keep architectural state explicit rather than hiding it behind side effects.
-- Make fetch, decode, and later execution behavior deterministic and inspectable.
-- Build in small milestones with observable intermediate results.
-- Validate encodings against the ISA specification and real assembler output.
-- Keep decode responsibilities separate from execution semantics.
-- Treat boundary conditions and illegal encodings as first-class future tests.
+- Prefer correctness and ISA-specification alignment over premature
+  optimization.
+- Keep architectural state explicit and inspectable.
+- Preserve deterministic behavior for repeatable debugging.
+- Build one stage at a time with small, observable milestones.
+- Validate encodings against both the specification and real assembler output.
+- Keep decode free of architectural side effects.
+- Keep execution responsible for state updates once it is implemented.
+- Treat invalid addresses, illegal encodings, sign boundaries, and alignment
+  behavior as first-class verification cases.
 
 ## Why This Project Matters
 
-Instruction decoding is the connection point between an ISA document, machine
-code, firmware, and CPU behavior. Building this model develops practical
-experience with binary formats, memory ordering, architectural fields, and
-debuggable systems software—the same foundations used in instruction tracing,
-firmware and silicon enablement, CPU verification, and embedded bring-up.
+An instruction-set reference model connects ISA documentation, machine code,
+firmware, and architectural behavior. This project develops that connection
+from the bottom up: byte ordering, field extraction, immediate semantics,
+explicit CPU state, and a clean path toward execution and verification.
 
-The value of this project is not a claim of completed processor functionality.
-It is a clear, testable path from understanding encoded instructions to
-building a reference model and verification workflow.
+The result is intentionally not presented as a finished processor. Its value is
+the disciplined architecture and progression from an inspectable decoder to a
+testable RV32I model suitable for instruction tracing, embedded systems work,
+CPU verification, and firmware or silicon enablement workflows.

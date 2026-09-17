@@ -1,2 +1,4 @@
 app
 .vscode
+.DS_Store
+extra.md
