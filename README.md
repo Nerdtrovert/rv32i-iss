@@ -25,12 +25,12 @@ cycle-accurate design or a complete CPU simulator.
 | Immediate reconstruction | Implemented for S-, B-, and J-type encodings |
 | Signed immediate handling | Implemented for I-, S-, B-, and J-type paths |
 | Decode/execute boundary | Explicit: decode returns data; execution receives decoded data |
-| Instruction execution | Not implemented; execution entry point is currently a stub |
-| Fetch/decode/execute loop | Not implemented |
+| Instruction execution | Implemented for `ADDI`, `ADD`, and `SUB` |
+| Fetch/decode/execute loop | Implemented for the instructions loaded in RAM |
 | Automated regression tests | Not implemented |
 
-The active program fetches `0x010002ef`, decodes it as a J-type instruction,
-and prints its instruction word, opcode, destination register, and immediate.
+The active program fetches the instructions loaded in RAM, decodes and executes
+each one, advances `pc` by four bytes, and prints the resulting register value.
 
 ## Repository Architecture
 
@@ -52,7 +52,7 @@ and prints its instruction word, opcode, destination register, and immediate.
         +-------------------------------------------->|  Execute            |
                                                       |  src/execute.cpp    |
                                                       |  exec_instruction()  |
-                                                      |  [stub / next stage] |
+                                                      |  ADDI / ADD / SUB     |
                                                       +-----------+----------+
                                                                   |
                                                                   v
@@ -71,7 +71,7 @@ Memory bytes
     -> uint32_t instruction
     -> decode_instruction(instruction)
     -> DecodedInstruction
-    -> exec_instruction(...)  [not implemented]
+    -> exec_instruction(...)
 ```
 
 ### Architectural decisions
@@ -79,7 +79,7 @@ Memory bytes
 **Decode and execute are separate interfaces.** `decode_instruction` is a
 pure transformation from an encoded `uint32_t` to a `DecodedInstruction`.
 Execution is given the decoded representation separately through
-`exec_instrcution(CPU&, const DecodedInstruction&, Memory&)`. This keeps
+`exec_instruction(CPU&, const DecodedInstruction&, Memory&)`. This keeps
 bit-level encoding concerns out of instruction semantics and creates a clear
 seam for future unit, directed, and differential testing.
 
@@ -114,7 +114,23 @@ stage easier to inspect against the ISA specification.
 - **Architectural observability:** printing the fetched word and decoded fields
   in a deterministic format.
 - **Separation of concerns:** keeping encoding details in decode and reserving
-  architectural side effects for execute.
+  architectural side effects for execute. The current implementation is:
+
+```cpp
+void exec_instruction(CPU& cpu,
+                      const DecodedInstruction& instr,
+                      Memory& memory);
+```
+
+It currently handles:
+
+- `ADDI` (`opcode 0x13`, `funct3 0x00`)
+- `ADD` (`opcode 0x33`, `funct3 0x00`, `funct7 0x00`)
+- `SUB` (`opcode 0x33`, `funct3 0x00`, `funct7 0x20`)
+
+The function reads source registers with `read_reg` and writes the destination
+with `write_reg`. The `Memory&` parameter is reserved for future load/store
+execution; these arithmetic instructions do not modify RAM.
 - **Verification-oriented development:** comparing known assembler output with
   expected fields before adding execution semantics.
 
@@ -261,7 +277,7 @@ The repository uses the included `Makefile`:
 
 ```bash
 make
-./app
+./build/app
 ```
 
 The direct compiler configuration used by the Makefile is:
@@ -296,17 +312,26 @@ These fields correspond to:
 jal x5, 16
 ```
 
-The project decodes this instruction only. It does not yet execute `JAL`, write
-`x5`, or update `pc`.
+The current execution samples are:
+
+```text
+addi x3, x0, 7
+addi x4, x0, -3
+add  x2, x3, x4
+sub  x2, x4, x3
+```
+
+The execution output includes the fetched instruction, decoded fields, and
+destination register value for each instruction.
 
 ## Roadmap
 
 ```text
 Fetch
-  -> Decode                         [current]
-  -> CPU architectural state       [container exists; execution use pending]
-  -> R-type ALU execution
-  -> I-type arithmetic/logical execution
+  -> Decode
+  -> CPU architectural state       [current]
+  -> I-type arithmetic execution   [ADDI current]
+  -> R-type arithmetic execution   [ADD/SUB current]
   -> Load/store execution
   -> Branch and jump control flow
   -> Full fetch/decode/execute loop

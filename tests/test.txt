@@ -5,13 +5,73 @@ test.o:     file format elf32-littleriscv
 Disassembly of section .text:
 
 00000000 <.text>:
-   0:	007302b3          	add	t0,t1,t2
-   4:	407302b3          	sub	t0,t1,t2
-   8:	007372b3          	and	t0,t1,t2
-   c:	007362b3          	or	t0,t1,t2
-  10:	007342b3          	xor	t0,t1,t2
-  14:	00732423          	sw	t2,8(t1)
-  18:	00730463          	beq	t1,t2,20 <.text+0x20>
-  1c:	fe731ce3          	bne	t1,t2,14 <.text+0x14>
-  20:	123452b7          	lui	t0,0x12345
-  24:	010002ef          	jal	t0,34 <.text+0x34>
+   0:	00a00193          	li	gp,10
+
+test.o:     file format elf32-littleriscv
+
+
+Disassembly of section .text:
+
+00000000 <.text>:
+   0:	ff900193          	li	gp,-7
+
+test.o:     file format elf32-littleriscv
+
+
+Disassembly of section .text:
+
+00000000 <.text>:
+   0:	00500193          	li	gp,5
+   4:	ffb18193          	addi	gp,gp,-5
+
+test.o:     file format elf32-littleriscv
+
+
+Disassembly of section .text:
+
+00000000 <.text>:
+   0:	00500193          	li	gp,5
+   4:	ffb00193          	li	gp,-5
+
+test.o:     file format elf32-littleriscv
+
+
+Disassembly of section .text:
+
+00000000 <.text>:
+   0:	00500193          	li	gp,5
+   4:	ffb00193          	li	gp,-5
+   8:	00418133          	add	sp,gp,tp
+
+test.o:     file format elf32-littleriscv
+
+
+Disassembly of section .text:
+
+00000000 <.text>:
+   0:	00500193          	li	gp,5
+   4:	ffb00193          	li	gp,-5
+   8:	00418133          	add	sp,gp,tp
+   c:	40320133          	sub	sp,tp,gp
+
+test.o:     file format elf32-littleriscv
+
+
+Disassembly of section .text:
+
+00000000 <.text>:
+   0:	00700193          	li	gp,7
+   4:	ffd00213          	li	tp,-3
+   8:	00418133          	add	sp,gp,tp
+   c:	40320133          	sub	sp,tp,gp
+
+test.o:     file format elf32-littleriscv
+
+
+Disassembly of section .text:
+
+00000000 <.text>:
+   0:	00700193          	li	gp,7
+   4:	ffd00213          	li	tp,-3
+   8:	00418133          	add	sp,gp,tp
+   c:	40320133          	sub	sp,tp,gp

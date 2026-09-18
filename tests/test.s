@@ -1,22 +1,10 @@
 
 .text
 
-add x5, x6, x7
+addi x3, x0, 7
 
-sub x5, x6, x7
+addi x4, x0, -3
 
-and x5, x6, x7
+add x2, x3, x4
 
-or  x5, x6, x7
-
-xor x5, x6, x7
-
-sw x7, 8(x6)
-
-beq x6, x7, . +8
-
-bne x6, x7, . -8
-
-lui x5, 0x12345
-
-jal x5, . +16
+sub x2, x4, x3

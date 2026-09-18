@@ -5,5 +5,5 @@
 #include "memory.h"
 #include "decode.h"
 
-void exec_instrcution(CPU& cpu, const DecodedInstruction& instr, Memory& memory);
+void exec_instruction(CPU& cpu, const DecodedInstruction& instr, Memory& memory);
 #endif
